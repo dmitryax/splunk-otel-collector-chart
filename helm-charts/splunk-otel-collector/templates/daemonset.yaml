@@ -103,40 +103,6 @@ spec:
             - name: fluentd-config-json
               mountPath: /fluentd/etc/json
         {{- else }}
-        {{- if not (eq .Values.distribution "gke/autopilot") }}
-        - name: migrate-checkpoint
-          image: {{ template "splunk-otel-collector.image.otelcol" . }}
-          imagePullPolicy: {{ .Values.image.otelcol.pullPolicy }}
-          command: ["/migratecheckpoint"]
-          securityContext:
-            runAsUser: 0
-          env:
-          - name: CONTAINER_LOG_PATH_FLUENTD
-            value: "{{ .Values.fluentd.config.posFilePrefix }}-containers.log.pos"
-          - name: CONTAINER_LOG_PATH_OTEL
-            value: "/var/addon/splunk/otel_pos/receiver_filelog_"
-          - name: CUSTOM_LOG_PATH_FLUENTD
-            value: "{{ .Values.fluentd.config.posFilePrefix }}-*.pos"
-          - name: CUSTOM_LOG_PATH_OTEL
-            value: "/var/addon/splunk/otel_pos/receiver_filelog_"
-          - name: CUSTOM_LOG_CAPTURE_REGEX
-            value: '{{ regexReplaceAll "(\\W)" .Values.fluentd.config.posFilePrefix "\\${1}" }}\-(?P<name>[\w0-9-_]+)\.pos'
-          - name: JOURNALD_LOG_PATH_FLUENTD
-            value: "/var/log/splunkd-fluentd-journald-*.pos.json"
-          - name: JOURNALD_LOG_PATH_OTEL
-            value: "/var/addon/splunk/otel_pos/receiver_journald_"
-          - name: JOURNALD_LOG_CAPTURE_REGEX
-            value: '\/splunkd\-fluentd\-journald\-(?P<name>[\w0-9-_]+)\.pos\.json'
-          resources:
-            {{- toYaml $agent.resources | nindent 12 }}
-          volumeMounts:
-            - name: checkpoint
-              mountPath: /var/addon/splunk/otel_pos
-            - name: varlog
-              mountPath: /var/log
-            - name: varlibdockercontainers
-              mountPath: /var/lib/docker/containers
-        {{- end }}
         {{- if and $agent.securityContext.runAsUser $agent.securityContext.runAsGroup }}
         - name: patch-log-dirs
           image: {{ template "splunk-otel-collector.image.initPatchLogDirs" . }}
@@ -244,7 +210,7 @@ spec:
         - .\otelcol.exe
         - --config=C:\\conf\relay.yaml
         {{- else }}
-        - /otelcol
+        - /otelcol-contrib
         - --config=/conf/relay.yaml
         {{- if eq .Values.distribution "gke/autopilot" }}
         {{- /* Temporary no-op argument required to run collector on GKE Autopilot */}}

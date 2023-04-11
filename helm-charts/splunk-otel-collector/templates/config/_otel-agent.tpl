@@ -247,12 +247,6 @@ receivers:
     endpoint: 0.0.0.0:9943
   {{- end }}
 
-  {{- if (eq (include "splunk-otel-collector.o11yTracesEnabled" .) "true") }}
-  smartagent/signalfx-forwarder:
-    type: signalfx-forwarder
-    listenAddress: 0.0.0.0:9080
-  {{- end }}
-
   {{- if and (eq (include "splunk-otel-collector.logsEnabled" .) "true") (eq .Values.logsEngine "otel") }}
   {{- if .Values.logsCollection.containers.enabled }}
   filelog:
@@ -772,9 +766,6 @@ service:
       receivers:
         - otlp
         - jaeger
-        {{- if (eq (include "splunk-otel-collector.o11yTracesEnabled" $) "true") }}
-        - smartagent/signalfx-forwarder
-        {{- end }}
         - zipkin
       processors:
         - memory_limiter
