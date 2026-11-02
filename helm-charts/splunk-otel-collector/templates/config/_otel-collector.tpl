@@ -4,6 +4,8 @@ The values can be overridden in .Values.gateway.config
 */}}
 {{- define "splunk-otel-collector.gatewayConfig" -}}
 {{- $k8sEntityEventsViaGateway := eq (include "splunk-otel-collector.k8sEntityEventsForPropertiesViaGateway" .) "true" -}}
+{{- $logsPipelineEnabled := (or (eq (include "splunk-otel-collector.logsEnabled" .) "true") (eq (include "splunk-otel-collector.profilingEnabled" .) "true") (.Values.splunkObservability.secureAppEnabled)) -}}
+{{- $routeLogs := and (eq (include "splunk-otel-collector.splunkO11yEnabled" .) "true") (or $logsPipelineEnabled $k8sEntityEventsViaGateway) -}}
 extensions:
   {{- include "splunk-otel-collector.opampExtension" (merge (dict "forceDirectEndpoint" true) .) | nindent 2 }}
   {{- include "splunk-otel-collector.o11yOpAmpHttpForwarderExtension" (merge (dict "forceDirectEndpoint" true "tokenPassthrough" .Values.gateway.tokenPassthrough) .) | nindent 2 }}
@@ -113,18 +115,6 @@ processors:
 
   {{- include "splunk-otel-collector.logsToMetricsGatewayProcessors" . | nindent 2 }}
 
-  {{- if $k8sEntityEventsViaGateway }}
-  # Split k8s entity events, converted to dimension updates, from other entity events.
-  filter/drop_k8s_entity_events:
-    logs:
-      log_record:
-        - 'IsMatch(attributes["otel.entity.type"], "^(k8s\\..+|container)$")'
-  filter/drop_other_entity_events:
-    logs:
-      log_record:
-        - 'not IsMatch(attributes["otel.entity.type"], "^(k8s\\..+|container)$")'
-  {{- end }}
-
 exporters:
   {{- if (eq (include "splunk-otel-collector.splunkO11yEnabled" .) "true") }}
   signalfx:
@@ -177,22 +167,23 @@ exporters:
   {{- include "splunk-otel-collector.splunkPlatformTracesExporter" . | nindent 2 }}
   {{- end }}
 
-{{- if and
-  (or (eq (include "splunk-otel-collector.logsEnabled" .) "true") (eq (include "splunk-otel-collector.profilingEnabled" .) "true") (.Values.splunkObservability.secureAppEnabled))
-  (eq (include "splunk-otel-collector.splunkO11yEnabled" .) "true")
-}}
+{{- if $routeLogs }}
 connectors:
   # Routing connector to separate entity events from regular logs
   routing/logs:
+    {{- if $logsPipelineEnabled }}
     default_pipelines: [logs]
+    {{- end }}
     table:
+      {{- if $k8sEntityEventsViaGateway }}
+      # k8s entity events sent by the cluster receiver
+      - context: resource
+        condition: otelcol.grpc.metadata["x-splunk-entity-source"][0] == "k8s_cluster"
+        pipelines: [logs/k8s_entities]
+      {{- end }}
       - context: log
         condition: instrumentation_scope.attributes["otel.entity.event_as_log"] == true
-        pipelines:
-          - logs/entities
-          {{- if $k8sEntityEventsViaGateway }}
-          - logs/k8s_entities
-          {{- end }}
+        pipelines: [logs/entities]
       {{- if .Values.splunkObservability.secureAppEnabled }}
       - context: log
         condition: instrumentation_scope.name == "secureapp"
@@ -329,31 +320,18 @@ service:
     # entity events
     logs/entities:
       receivers:
-        {{- if or (eq (include "splunk-otel-collector.logsEnabled" .) "true") (eq (include "splunk-otel-collector.profilingEnabled" .) "true")  (.Values.splunkObservability.secureAppEnabled) }}
+        {{- if $routeLogs }}
         - routing/logs
         {{- else }}
         - otlp
         {{- end }}
-      processors:
-        - memory_limiter
-        {{- if $k8sEntityEventsViaGateway }}
-        - filter/drop_k8s_entity_events
-        {{- end }}
-        - batch
+      processors: [memory_limiter, batch]
       exporters: [otlp_http/entities]
     {{- if $k8sEntityEventsViaGateway }}
     # k8s entity events from the cluster receiver converted to dimension updates
     logs/k8s_entities:
-      receivers:
-        {{- if or (eq (include "splunk-otel-collector.logsEnabled" .) "true") (eq (include "splunk-otel-collector.profilingEnabled" .) "true")  (.Values.splunkObservability.secureAppEnabled) }}
-        - routing/logs
-        {{- else }}
-        - otlp
-        {{- end }}
-      processors:
-        - memory_limiter
-        - filter/drop_other_entity_events
-        - batch
+      receivers: [routing/logs]
+      processors: [memory_limiter, batch]
       exporters: [signalfx]
     {{- end }}
     {{- if .Values.splunkObservability.secureAppEnabled }}
@@ -374,12 +352,12 @@ service:
       exporters: [otlp_http/secureapp]
     {{- end }}
     {{- end }}
-    {{- if or (eq (include "splunk-otel-collector.logsEnabled" .) "true") (eq (include "splunk-otel-collector.profilingEnabled" .) "true") (.Values.splunkObservability.secureAppEnabled)}}
-    {{- if (eq (include "splunk-otel-collector.splunkO11yEnabled" .) "true") }}
+    {{- if $routeLogs }}
     logs/split:
       receivers: [otlp]
       exporters: [routing/logs]
     {{- end }}
+    {{- if $logsPipelineEnabled }}
     # default logs + profiling data pipeline
     logs:
       receivers:
