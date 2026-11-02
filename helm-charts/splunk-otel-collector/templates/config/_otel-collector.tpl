@@ -3,9 +3,9 @@ Config for the optional standalone collector
 The values can be overridden in .Values.gateway.config
 */}}
 {{- define "splunk-otel-collector.gatewayConfig" -}}
-{{- $k8sEntityEventsViaGateway := eq (include "splunk-otel-collector.k8sEntityEventsForPropertiesViaGateway" .) "true" -}}
+{{- $useEntityEventsForK8sProperties := eq (include "splunk-otel-collector.k8sEntityEventsForPropertiesEnabled" .) "true" -}}
 {{- $logsPipelineEnabled := (or (eq (include "splunk-otel-collector.logsEnabled" .) "true") (eq (include "splunk-otel-collector.profilingEnabled" .) "true") (.Values.splunkObservability.secureAppEnabled)) -}}
-{{- $routeLogs := and (eq (include "splunk-otel-collector.splunkO11yEnabled" .) "true") (or $logsPipelineEnabled $k8sEntityEventsViaGateway) -}}
+{{- $routeLogs := and (eq (include "splunk-otel-collector.splunkO11yEnabled" .) "true") (or $logsPipelineEnabled $useEntityEventsForK8sProperties) -}}
 extensions:
   {{- include "splunk-otel-collector.opampExtension" (merge (dict "forceDirectEndpoint" true) .) | nindent 2 }}
   {{- include "splunk-otel-collector.o11yOpAmpHttpForwarderExtension" (merge (dict "forceDirectEndpoint" true "tokenPassthrough" .Values.gateway.tokenPassthrough) .) | nindent 2 }}
@@ -175,7 +175,7 @@ connectors:
     default_pipelines: [logs]
     {{- end }}
     table:
-      {{- if $k8sEntityEventsViaGateway }}
+      {{- if $useEntityEventsForK8sProperties }}
       # k8s entity events sent by the cluster receiver
       - context: resource
         condition: otelcol.grpc.metadata["x-splunk-entity-source"][0] == "k8s_cluster"
@@ -327,7 +327,7 @@ service:
         {{- end }}
       processors: [memory_limiter, batch]
       exporters: [otlp_http/entities]
-    {{- if $k8sEntityEventsViaGateway }}
+    {{- if $useEntityEventsForK8sProperties }}
     # k8s entity events from the cluster receiver converted to dimension updates
     logs/k8s_entities:
       receivers: [routing/logs]
